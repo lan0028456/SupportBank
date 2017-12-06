@@ -1,4 +1,5 @@
 const fs = require('fs');
+const xml2json = require('xml2json');
 const $ = jQuery = require('jquery');
 require('jquery-csv/src/jquery.csv.js');
 const readline = require('readline-sync');
@@ -18,63 +19,105 @@ const logger = log4js.getLogger();
 logger.debug('Start');
 console.log('\nPlease enter command (List All / List [Account]:');
 //const command = readline.prompt();
-const command = 'List Sarah T';//Jon A/List All
+const command = 'List Jon A';//Jon A/List All
 logger.debug('Command input: '+command);
-const filename='DodgyTransactions2015.csv';
+const filename='Transactions2012.xml';
 logger.debug('File to be loaded: '+filename);
 
-fs.readFile(filename, 'UTF-8', function(err, csv) {
-    $.csv.toObjects(csv, {}, function(err, data) {
-        logger.debug('Loading file '+filename);
-        if (DataValidation(data)) {
-            logger.debug('Data validation passed')
-        }
-        if (command==='List All'){
-            let accounts=ListAll(data);
-            console.log(accounts);
-            logger.debug('List-All account produced');
-        } else {
-            let personalaccount=ListPersonalAccount(data,command);
-            console.log(personalaccount);
-            logger.debug('Personal account produced');
-        }
+let last3letters=filename.substr(filename.length-3,filename.length);
+let last4letters=filename.substr(filename.length-4,filename.length);
+if (last3letters==='csv'){
+    logger.debug('File to be loaded is in .csv format');
+    fs.readFile(filename, 'UTF-8', function(err, csv) {
+        $.csv.toObjects(csv, {}, function(err, data) {
+            logger.debug('Loading file '+filename);
+            treatingData(data,command);
+        });
     });
-});
-
+} else if (last4letters==='json'){
+    logger.debug('File to be loaded is in .json format');
+    let data=fs.readFileSync(filename);
+    let dataparse=JSON.parse(data);
+    logger.debug('Loading file '+filename);
+    treatingData(dataparse,command);
+} else if (last3letters==='xml') {
+    logger.debug('File to be loaded is in .xml format');
+    fs.readFile(filename, function(err, data) {
+        let dataparse=xml2obj(data);
+        logger.debug('Loading file '+filename);
+        treatingData(dataparse,command);
+    });
+} else {
+    logger.warn('Warning: file type not supported!')
+}
 
 
 // functions
-function DataValidation(data) {
+function treatingData(data,command){
+    if (dataValidation(data)) {
+        logger.debug('Data validation passed')
+    }
+    if (command==='List All'){
+        let result=listAll(data);
+        console.log(result);
+        logger.debug('List-All account produced');
+    } else {
+        let personalaccount=listPersonalAccount(data,command);
+        console.log(personalaccount);
+        logger.debug('Personal account produced');
+    }
+}
+function xml2obj(data){
+    let dataJSON = xml2json.toJson(data);
+    let dataJSONObj=JSON.parse(dataJSON);
+    let dataTransaction=dataJSONObj.TransactionList.SupportTransaction;
+    let dataparse=[];
+    for(let i=0; i<dataTransaction.length; i++){
+        let obj={Date:dataTransaction[i].Date,
+            From:dataTransaction[i].Parties.From,
+            To:dataTransaction[i].Parties.To,
+            Narrative:dataTransaction[i].Description,
+            Amount:dataTransaction[i].Value};
+        dataparse.push(obj);
+    }
+    return dataparse;
+}
+
+function dataValidation(data) {
     let check = true;
     for(let i=0; i<data.length; i++) {
         if (!+data[i].Amount) {
             logger.warn('Warning: Amount in line '+[i+2]+' is not a valid number!');
             check = false;
-        } else if (!moment(data[i].Date, "DD/MM/YYYY").isValid()) {
+        } else if (!moment(data[i].Date, "DD/MM/YYYY").isValid() & !moment(data[i].Date, "YYYY-MM-DD").isValid() & !+data[i].Date) {
             logger.warn('Warning: Date in line '+[i+2]+' is not a valid date!');
             check = false;
         }
     }
     return check
 }
-function ListAll(data) {
+
+
+function listAll(data) {
     let accounts={};
     for(let i=0; i<data.length; i++) {
-        if (accounts[data[i].From]) {
-            accounts[data[i].From] -= +data[i].Amount;
+        let from=Object.keys(data[1])[1];
+        let to=Object.keys(data[1])[2];
+        if (accounts[data[i][from]]) {
+            accounts[data[i][from]] -= +data[i].Amount;
         } else {
-            accounts[data[i].From] = -data[i].Amount;
+            accounts[data[i][from]] = -data[i].Amount;
         }
-        if (accounts[data[i].To]) {
-            accounts[data[i].To] += +data[i].Amount;
+        if (accounts[data[i][to]]) {
+            accounts[data[i][to]] += +data[i].Amount;
         } else {
-            accounts[data[i].To] = +data[i].Amount;
+            accounts[data[i][to]] = +data[i].Amount;
         }
     }
     return accounts;
 }
 
-function GetTheName(command) {
+function getTheName(command) {
     let thename='';
     for (let i=5;i<command.length;i++){
         thename+=command[i];
@@ -82,20 +125,18 @@ function GetTheName(command) {
     return thename;
 }
 
-function ListPersonalAccount(data,command){
+function listPersonalAccount(data,command){
     let personalaccount=[['Date','Narrative','Transaction']];
     for(let i=0; i<data.length; i++) {
         let money;
-        let thename = GetTheName(command);
-        if (data[i].From===thename) {
+        let thename = getTheName(command);
+        if (data[i][Object.keys(data[1])[1]]===thename) {
             money = -data[i].Amount;
             personalaccount.push([data[i].Date,data[i].Narrative,money]);
-        } else if (data[i].To===thename) {
+        } else if (data[i][Object.keys(data[1])[2]]===thename) {
             money = +data[i].Amount;
             personalaccount.push([data[i].Date,data[i].Narrative,money]);
         }
     }
     return personalaccount;
 }
-
-
